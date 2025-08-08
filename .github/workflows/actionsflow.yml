@@ -3,13 +3,15 @@ on:
   repository_dispatch:
   workflow_dispatch:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "* * * * *"
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Build Actionsflow workflows from files in /workflows
       - uses: actionsflow/actionsflow-action@v1
         with:
           args: build
@@ -17,3 +19,16 @@ jobs:
           json-github: ${{ toJson(github) }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # These two steps actually execute the built workflows
+      - name: Setup act
+        uses: actionsflow/setup-act-for-actionsflow@v1
+
+      - name: Run built workflows
+        run: |
+          act --workflows ./dist/workflows \
+              --secret-file ./dist/.secrets \
+              --eventpath ./dist/event.json \
+              --env-file ./dist/.env \
+              -P ubuntu-latest=actionsflow/act-environment:v1 \
+              -P ubuntu-18.04=actionsflow/act-environment:v1
