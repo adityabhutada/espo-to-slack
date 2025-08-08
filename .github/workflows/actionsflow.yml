@@ -3,7 +3,7 @@ on:
   repository_dispatch:
   workflow_dispatch:
   schedule:
-    - cron: "* * * * *"
+    - cron: "*/15 * * * *"
 
 jobs:
   run:
@@ -13,3 +13,7 @@ jobs:
       - uses: actionsflow/actionsflow-action@v1
         with:
           args: build
+          json-secrets: ${{ toJson(secrets) }}
+          json-github: ${{ toJson(github) }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
