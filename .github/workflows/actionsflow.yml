@@ -13,6 +13,3 @@ jobs:
       - uses: actionsflow/actionsflow-action@v1
         with:
           args: build
-          token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
