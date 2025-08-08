@@ -6,21 +6,40 @@ jobs:
   notify-slack:
     runs-on: ubuntu-latest
     steps:
-      - name: Debug payload
+      - name: Show raw payload
         run: |
           echo '--- RAW BODY START ---'
           echo '${{ toJson(on.webhook.outputs.body) }}'
           echo '--- RAW BODY END ---'
-      - name: Install jq
+
+      - name: Install jq and curl
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq
-      - name: Post each new lead to Slack
+
+      - name: Validate and normalize payload
+        id: norm
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           RAW_BODY: ${{ toJson(on.webhook.outputs.body) }}
         run: |
-          echo "$RAW_BODY" | jq -c '.[]' | while read -r item; do
+          set -e
+          # Validate JSON
+          echo "$RAW_BODY" | jq . >/dev/null 2>&1 || { echo "Invalid JSON body"; exit 1; }
+          # Ensure array form
+          echo "$RAW_BODY" | jq -c 'if type == "array" then . else [.] end' > normalized.json
+          echo "normalized=$(cat normalized.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Post each entry to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          set -e
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "Missing secret SLACK_WEBHOOK_URL"
+            exit 1
+          fi
+
+          cat normalized.json | jq -c '.[]' | while read -r item; do
             name=$(echo "$item" | jq -r '.name // ((.firstName // "") + " " + (.lastName // "")) | gsub("^\\s+|\\s+$"; "")')
             email=$(echo "$item" | jq -r '.emailAddress // ""')
             phone=$(echo "$item" | jq -r '.phoneNumber // ""')
@@ -28,7 +47,17 @@ jobs:
 
             text=$(printf "New lead created: %s\nEmail: %s\nPhone: %s\nEspoCRM ID: %s" "$name" "$email" "$phone" "$id")
 
-            curl -sS -X POST -H 'Content-Type: application/json' \
+            resp=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" -X POST \
+              -H "Content-Type: application/json" \
               --data "$(jq -n --arg t "$text" '{text: $t}')" \
-              "$SLACK_WEBHOOK_URL"
+              "$SLACK_WEBHOOK_URL")
+
+            echo "Slack HTTP status: $resp"
+            echo "Slack response body:"
+            cat /tmp/resp.txt
+
+            if [ "$resp" -lt 200 ] || [ "$resp" -ge 300 ]; then
+              echo "Slack post failed"
+              exit 1
+            fi
           done
