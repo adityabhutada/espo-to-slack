@@ -1,0 +1,13 @@
+name: Actionsflow
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "* * * * *" # runs every minute
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actionsflow/actionsflow@v1
