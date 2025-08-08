@@ -12,32 +12,41 @@ jobs:
           echo '${{ toJson(on.webhook.outputs.body) }}'
           echo '--- RAW BODY END ---'
 
-      - name: Install jq and curl
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq
-
-      - name: Validate and normalize payload
-        id: norm
-        env:
-          RAW_BODY: ${{ toJson(on.webhook.outputs.body) }}
+      - name: Ensure jq and curl are available
         run: |
           set -e
-          # Validate JSON
-          echo "$RAW_BODY" | jq . >/dev/null 2>&1 || { echo "Invalid JSON body"; exit 1; }
-          # Ensure array form
-          echo "$RAW_BODY" | jq -c 'if type == "array" then . else [.] end' > normalized.json
-          echo "normalized=$(cat normalized.json)" >> "$GITHUB_OUTPUT"
+          if ! command -v jq >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update -y && apt-get install -y jq
+            elif command -v apk >/dev/null 2>&1; then
+              apk add --no-cache jq
+            else
+              echo "No supported package manager found for jq" && exit 1
+            fi
+          fi
+          if ! command -v curl >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update -y && apt-get install -y curl
+            elif command -v apk >/dev/null 2>&1; then
+              apk add --no-cache curl
+            else
+              echo "No supported package manager found for curl" && exit 1
+            fi
+          fi
 
       - name: Post each entry to Slack
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RAW_BODY: ${{ toJson(on.webhook.outputs.body) }}
         run: |
           set -e
           if [ -z "$SLACK_WEBHOOK_URL" ]; then
             echo "Missing secret SLACK_WEBHOOK_URL"
             exit 1
           fi
+
+          # Ensure array form
+          echo "$RAW_BODY" | jq -c 'if type == "array" then . else [.] end' > normalized.json
 
           cat normalized.json | jq -c '.[]' | while read -r item; do
             name=$(echo "$item" | jq -r '.name // ((.firstName // "") + " " + (.lastName // "")) | gsub("^\\s+|\\s+$"; "")')
@@ -47,16 +56,16 @@ jobs:
 
             text=$(printf "New lead created: %s\nEmail: %s\nPhone: %s\nEspoCRM ID: %s" "$name" "$email" "$phone" "$id")
 
-            resp=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" -X POST \
+            status=$(curl -sS -o /tmp/slack_resp.txt -w "%{http_code}" \
               -H "Content-Type: application/json" \
-              --data "$(jq -n --arg t "$text" '{text: $t}')" \
+              -d "$(jq -n --arg t "$text" '{text: $t}')" \
               "$SLACK_WEBHOOK_URL")
 
-            echo "Slack HTTP status: $resp"
-            echo "Slack response body:"
-            cat /tmp/resp.txt
+            echo "Slack HTTP status: $status"
+            echo "Slack response:"
+            cat /tmp/slack_resp.txt
 
-            if [ "$resp" -lt 200 ] || [ "$resp" -ge 300 ]; then
+            if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
               echo "Slack post failed"
               exit 1
             fi
