@@ -1,24 +1,25 @@
 on:
   webhook:
     method: post
-    # optional: you can limit to a custom path if you want
-    # path: /lead
 
 jobs:
   notify-slack:
     runs-on: ubuntu-latest
     steps:
-      - name: Ensure jq is available
+      - name: Debug payload
+        run: |
+          echo '--- RAW BODY START ---'
+          echo '${{ toJson(on.webhook.outputs.body) }}'
+          echo '--- RAW BODY END ---'
+      - name: Install jq
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq
-
       - name: Post each new lead to Slack
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           RAW_BODY: ${{ toJson(on.webhook.outputs.body) }}
         run: |
-          # RAW_BODY is an array from EspoCRM. Loop each item and post a message.
           echo "$RAW_BODY" | jq -c '.[]' | while read -r item; do
             name=$(echo "$item" | jq -r '.name // ((.firstName // "") + " " + (.lastName // "")) | gsub("^\\s+|\\s+$"; "")')
             email=$(echo "$item" | jq -r '.emailAddress // ""')
@@ -27,7 +28,6 @@ jobs:
 
             text=$(printf "New lead created: %s\nEmail: %s\nPhone: %s\nEspoCRM ID: %s" "$name" "$email" "$phone" "$id")
 
-            # send to Slack via Incoming Webhook
             curl -sS -X POST -H 'Content-Type: application/json' \
               --data "$(jq -n --arg t "$text" '{text: $t}')" \
               "$SLACK_WEBHOOK_URL"
