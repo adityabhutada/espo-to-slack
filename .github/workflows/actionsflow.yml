@@ -1,16 +1,13 @@
 name: Actionsflow
 on:
-  # required so webhooks can trigger runs
   repository_dispatch:
-  # optional: run manually
   workflow_dispatch:
-  # optional: enable if you also want polling-style triggers
-  #schedule:
- #   - cron: "*/15 * * * *"
+  schedule:
+    - cron: "* * * * *"
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actionsflow/actionsflow@v1
+      - uses: actionsflow/actionsflow-action@v1
